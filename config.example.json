@@ -1,0 +1,9 @@
+{
+  "listen": "0.0.0.0",
+  "port": 6601,
+  "mpv": "/opt/homebrew/bin/mpv",
+  "audio_device": "auto",
+  "ipc_socket": "/Users/your-user/Library/Application Support/MA MPV Player/mpv.sock",
+  "keychain_service": "com.ollisulopuisto.ma-mpv-player",
+  "keychain_account": "your-macos-username"
+}

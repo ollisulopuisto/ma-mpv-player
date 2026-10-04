@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Lint Python
+        run: pipx run ruff check .
+      - name: Lint shell scripts
+        run: brew install shellcheck && shellcheck -S style scripts/*.sh
+      - name: Test MPD bridge protocol logic
+        run: python -m unittest discover -s tests -v
+      - name: Validate install scripts
+        run: for script in scripts/*.sh; do bash -n "$script"; done
+      - name: Validate LaunchAgent example
+        run: plutil -lint launchd/com.ollisulopuisto.ma-mpv-player.plist.example

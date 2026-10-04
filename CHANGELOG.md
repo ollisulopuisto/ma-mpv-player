@@ -1,0 +1,13 @@
+# Changelog
+
+Versions use CalVer: `vYY.MM.DD.N`.
+
+## [v26.10.04.1] - 2026-10-04
+
+First packaged release of the Music Assistant → MPD → mpv bridge for macOS.
+
+- Music Assistant can play to this Mac through its built-in MPD Players provider; mpv decodes the stream and plays it through CoreAudio.
+- Runs as the per-user LaunchAgent `com.ollisulopuisto.ma-mpv-player`, installed under `~/Library/Application Support/MA MPV Player`, logging to `~/Library/Logs/ma-mpv-player.log`.
+- Settings live in `~/.config/ma-mpv-player/config.json`: listen address and port, mpv path, `audio_device` (`auto`, a CoreAudio UID, or `coreaudio/<name>`) and the Keychain item.
+- The MPD password is read from the macOS Keychain (at least 24 characters). `currentsong` now needs the password, so the stream URL is not shown to unauthenticated clients. Stream URLs are redacted from logs.
+- Install, uninstall and status scripts; CI runs strict ruff and shellcheck linting, the protocol tests, and plist validation.
