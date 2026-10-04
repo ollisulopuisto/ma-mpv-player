@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.04.4] - 2026-10-04
+
+- Playback follows the Denon through power changes. Its HDMI audio device vanishes for a moment when the AVR turns on or off, and mpv used to fall back to the Mac's speakers and stay there. With a pinned `audio_device`, the bridge now pauses while the device is gone (MA shows paused) and, when it returns, reopens the output on it and resumes, unless someone paused, stopped or started a track in the meantime. Logged as "Output device … disappeared" / "returned". `auto` is left to mpv.
+
 ## [v26.10.04.3] - 2026-10-04
 
 - Fixes silence after installing: the installer now runs the bridge with Homebrew's Python instead of whichever `python3` is first on PATH. A Python without macOS Local Network permission (such as miniconda's) could not fetch MA's stream ("No route to host"), so MA showed a few seconds of play and then stopped. Override with `PYTHON=... ./scripts/install.sh`.

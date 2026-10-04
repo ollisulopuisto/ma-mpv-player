@@ -9,7 +9,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from bridge import Bridge, ClientState, MPVClient, bool_arg, load_config, load_password, parse_command
+from bridge import (
+    OBSERVED_PROPERTIES,
+    Bridge,
+    ClientState,
+    MPVClient,
+    bool_arg,
+    load_config,
+    load_password,
+    parse_command,
+)
 
 
 class FakeMPV:
@@ -242,3 +251,71 @@ class FindPythonTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             chosen, _ = self.find_python(directory, PYTHON="/usr/bin/python3")
             self.assertEqual(chosen, "/usr/bin/python3")
+
+
+DENON = "coreaudio/11EE6600-0000-0000-001D-010380502D78"
+
+
+def device_list(*names):
+    return [{"name": "auto"}, *({"name": name} for name in names), {"name": "coreaudio/BuiltInSpeakerDevice"}]
+
+
+class OutputDeviceTests(unittest.IsolatedAsyncioTestCase):
+    """The AVR's HDMI device vanishes while it powers on or off; mpv then falls
+    back to the Mac's speakers and stays there after the device returns."""
+
+    def make_client(self, device_uid="11EE6600-0000-0000-001D-010380502D78", idle=False, pause=False):
+        client = MPVClient("mpv", device_uid, Path("/nonexistent.sock"))
+        properties = {"idle-active": idle, "pause": pause}
+        client.sent = []
+
+        async def send(*args):
+            if args[0] == "get_property":
+                return properties[args[1]]
+            client.sent.append(args)
+            if args[:2] == ("set_property", "pause"):
+                properties["pause"] = args[2]
+            return None
+
+        client._send = send
+        return client
+
+    async def test_playback_pauses_while_output_is_gone_and_resumes_on_it(self):
+        client = self.make_client()
+        await client._handle_device_list(device_list(DENON))
+        await client._handle_device_list(device_list())
+        self.assertEqual(client.sent, [("set_property", "pause", True)])
+
+        await client._handle_device_list(device_list(DENON))
+        self.assertEqual(
+            client.sent,
+            [("set_property", "pause", True), ("ao-reload",), ("set_property", "pause", False)],
+        )
+
+    async def test_returning_output_is_reopened_without_resuming_a_user_pause(self):
+        client = self.make_client(pause=True)
+        await client._handle_device_list(device_list(DENON))
+        await client._handle_device_list(device_list())
+        await client._handle_device_list(device_list(DENON))
+
+        self.assertEqual(client.sent, [("ao-reload",)])
+
+    async def test_mpd_command_while_output_is_gone_cancels_the_auto_resume(self):
+        client = self.make_client()
+        await client._handle_device_list(device_list(DENON))
+        await client._handle_device_list(device_list())
+        await client.command("stop")
+        await client._handle_device_list(device_list(DENON))
+
+        self.assertEqual(client.sent, [("set_property", "pause", True), ("stop",), ("ao-reload",)])
+
+    async def test_auto_device_is_left_to_mpv(self):
+        client = self.make_client(device_uid="auto")
+        await client._handle_device_list(device_list(DENON))
+        await client._handle_device_list(device_list())
+        await client._handle_device_list(device_list(DENON))
+
+        self.assertEqual(client.sent, [])
+
+    def test_device_list_is_observed(self):
+        self.assertIn("audio-device-list", OBSERVED_PROPERTIES)

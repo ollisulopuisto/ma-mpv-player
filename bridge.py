@@ -29,6 +29,7 @@ OBSERVED_PROPERTIES = (
     "volume",
     "audio-params",
     "media-title",
+    "audio-device-list",
 )
 
 
@@ -55,6 +56,10 @@ class MPVClient:
         self.next_request_id = 1
         self.request_lock = asyncio.Lock()
         self.on_change: Any = None
+        # Following the pinned output device (see _handle_device_list).
+        self.output_present: bool | None = None
+        self.paused_for_output = False
+        self.background_tasks: set[asyncio.Task[None]] = set()
 
     async def start(self, on_change: Any) -> None:
         """Start mpv and wait for its IPC endpoint."""
@@ -122,6 +127,13 @@ class MPVClient:
         self.socket_path.unlink(missing_ok=True)
 
     async def command(self, *args: Any) -> Any:
+        """Send an mpv command on behalf of the MPD client."""
+        if args[0] in {"loadfile", "stop"} or args[:2] == ("set_property", "pause"):
+            # The user took over; don't auto-resume when the output returns.
+            self.paused_for_output = False
+        return await self._send(*args)
+
+    async def _send(self, *args: Any) -> Any:
         """Send an mpv JSON IPC command and return its response data."""
         if self.writer is None or self.reader is None:
             raise MPVError("mpv IPC is not connected")
@@ -144,10 +156,45 @@ class MPVClient:
     async def get(self, name: str, default: Any = None) -> Any:
         """Read a property from mpv."""
         try:
-            value = await self.command("get_property", name)
+            value = await self._send("get_property", name)
         except MPVError:
             return default
         return default if value is None else value
+
+    async def _handle_device_list(self, devices: list[dict[str, Any]]) -> None:
+        """Keep playback on the pinned output device across AVR power changes.
+
+        The AVR's HDMI device vanishes for a moment while the AVR powers on or
+        off, and mpv's CoreAudio output then falls back to the Mac's speakers
+        and stays there after the device returns. So pause while the pinned
+        device is gone, and when it returns reopen the output on it and resume
+        if this pause was ours.
+        """
+        if self.device_uid == "auto":
+            return
+        target = self.device_uid if self.device_uid.startswith("coreaudio/") else f"coreaudio/{self.device_uid}"
+        present = any(device.get("name") == target for device in devices)
+        previous, self.output_present = self.output_present, present
+        if present == previous:
+            return
+        if not present:
+            playing = not await self.get("idle-active", True) and not await self.get("pause", False)
+            LOGGER.warning("Output device %s disappeared%s", target, "; pausing" if playing else "")
+            if playing:
+                await self._send("set_property", "pause", True)
+                self.paused_for_output = True
+        elif previous is False:
+            LOGGER.warning("Output device %s returned; reopening audio output", target)
+            await self._send("ao-reload")
+            if self.paused_for_output:
+                self.paused_for_output = False
+                await self._send("set_property", "pause", False)
+
+    def _schedule_device_check(self, devices: list[dict[str, Any]]) -> None:
+        """Run the device check outside the IPC reader, which must keep reading replies."""
+        task = asyncio.create_task(self._handle_device_list(devices))
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
 
     async def _read_events(self) -> None:
         """Resolve command responses and forward mpv playback events."""
@@ -170,6 +217,9 @@ class MPVClient:
                 # time-pos tick into an MPD player change floods idle/noidle
                 # and makes ordinary commands race with idle responses.
                 if event == "property-change" and message.get("name") == "time-pos":
+                    continue
+                if event == "property-change" and message.get("name") == "audio-device-list":
+                    self._schedule_device_check(message.get("data") or [])
                     continue
                 if event in {
                     "property-change",
