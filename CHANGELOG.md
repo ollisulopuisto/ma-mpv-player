@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.04.3] - 2026-10-04
+
+- Fixes silence after installing: the installer now runs the bridge with Homebrew's Python instead of whichever `python3` is first on PATH. A Python without macOS Local Network permission (such as miniconda's) could not fetch MA's stream ("No route to host"), so MA showed a few seconds of play and then stopped. Override with `PYTHON=... ./scripts/install.sh`.
+
 ## [v26.10.04.2] - 2026-10-04
 
 - The log in `~/Library/Logs/ma-mpv-player.log` now keeps only mpv's warnings and errors (such as the Denon output disappearing). Its verbose chatter, roughly 22,000 lines a week, appears only when the bridge runs with `--verbose`.

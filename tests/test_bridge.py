@@ -209,3 +209,36 @@ class FakeWriter:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FindPythonTests(unittest.TestCase):
+    """launchd jobs need a Python that macOS lets reach the LAN (Local Network privacy)."""
+
+    root = Path(__file__).resolve().parents[1]
+
+    def find_python(self, directory, **env):
+        conda_bin = Path(directory) / "miniconda3/bin"
+        brew_bin = Path(directory) / "homebrew/bin"
+        for folder in (conda_bin, brew_bin):
+            folder.mkdir(parents=True)
+            fake = folder / "python3"
+            fake.write_text("#!/bin/sh\n")
+            fake.chmod(0o755)
+        result = subprocess.run(
+            ["/bin/bash", str(self.root / "scripts/find-python.sh")],
+            check=True,
+            capture_output=True,
+            text=True,
+            env={"PATH": f"{conda_bin}:/usr/bin:/bin", "HOMEBREW_PREFIX": str(Path(directory) / "homebrew"), **env},
+        )
+        return result.stdout.strip(), brew_bin / "python3"
+
+    def test_prefers_homebrew_python_over_first_python_on_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            chosen, brew_python = self.find_python(directory)
+            self.assertEqual(chosen, str(brew_python))
+
+    def test_explicit_python_overrides_detection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            chosen, _ = self.find_python(directory, PYTHON="/usr/bin/python3")
+            self.assertEqual(chosen, "/usr/bin/python3")

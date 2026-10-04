@@ -9,7 +9,7 @@ CONFIG_DIR="$HOME/.config/ma-mpv-player"
 CONFIG="$CONFIG_DIR/config.json"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/ma-mpv-player.log"
-PYTHON="$(command -v python3 || true)"
+PYTHON="$("$ROOT/scripts/find-python.sh")"
 MPV="$(command -v mpv || true)"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

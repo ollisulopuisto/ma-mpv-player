@@ -108,6 +108,10 @@ volume, and decoded audio sample rate, bit depth, and channel count.
 - **MA says play failed or MPV cannot load the track:** test that the Mac can
   reach MA's advertised stream URL and port. A successful connection to the
   bridge alone does not prove the stream URL is reachable.
+- **Log shows `No route to host` to MA, but the same address works from
+  Terminal:** macOS Local Network privacy is blocking the Python the
+  LaunchAgent runs. The installer prefers Homebrew's Python; to pick another,
+  rerun it as `PYTHON=/path/to/python3 ./scripts/install.sh`.
 - **Stereo instead of 5.1:** check MA's source channel count, the MPD `audio`
   status (sample rate, bit depth, channels), and the AVR's input mode. For DTS tracks, refresh
   the Navidrome provider in MA after Navidrome reindexes them.
