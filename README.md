@@ -101,6 +101,23 @@ The bridge implements the MPD commands MA uses: `password`, `status`, `idle`,
 `close`, and `ping`. It reports MPV's play/pause/stop state, position, duration,
 volume, and decoded audio sample rate, bit depth, and channel count.
 
+## Home Assistant state webhook
+
+Optional. Set `ha_webhook_url` in the config (e.g.
+`http://192.168.1.202:8123/api/webhook/<id>`) and the bridge POSTs JSON to it
+whenever the player state or decoded format changes:
+
+```json
+{"state": "play", "channels": 6, "samplerate": 48000}
+```
+
+`state` is `play`, `pause` or `stop`; with no track loaded it sends
+`{"state": "stop", "channels": 0, "samplerate": 0}`. `channels` is what mpv
+decoded from MA's stream, which the AVR cannot see because the Mac's HDMI
+output is always a multichannel PCM container. Bursts of changes (e.g. while
+the output reopens after the AVR powers on) are sent as they happen, so
+debounce in HA. Failed POSTs are logged and retried on the next change.
+
 ## Troubleshooting
 
 - **MA cannot connect:** check the Mac LAN address, TCP port `6601`, the

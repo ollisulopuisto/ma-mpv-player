@@ -12,6 +12,7 @@ import os
 import re
 import shlex
 import subprocess
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -261,6 +262,57 @@ class MPVClient:
                 continue
             if message:
                 LOGGER.info("MPV: %s", message)
+
+
+class StatePublisher:
+    """Push the player state and decoded channel count to Home Assistant.
+
+    The Mac's HDMI output is always a multichannel PCM container, so the AVR
+    cannot tell stereo from 5.1; HA uses this to pick the surround mode.
+    """
+
+    def __init__(self, mpv: Any, send: Any) -> None:
+        self.mpv = mpv
+        self.send = send
+        self.last_sent: dict[str, Any] | None = None
+        self.task: asyncio.Task[None] | None = None
+
+    def schedule(self) -> None:
+        """Check soon; mpv emits bursts of changes, so run one check at a time."""
+        if self.task is None or self.task.done():
+            self.task = asyncio.create_task(self.check())
+
+    async def check(self) -> None:
+        """Send the current state if it differs from the last one HA received."""
+        idle = bool(await self.mpv.get("idle-active", True))
+        paused = bool(await self.mpv.get("pause", False))
+        params = await self.mpv.get("audio-params", {}) if not idle else {}
+        if not isinstance(params, dict):
+            params = {}
+        payload = {
+            "state": "stop" if idle else ("pause" if paused else "play"),
+            "channels": int(params.get("channel-count", 0) or 0),
+            "samplerate": int(params.get("samplerate", 0) or 0),
+        }
+        if payload == self.last_sent:
+            return
+        try:
+            await self.send(payload)
+        except (OSError, ValueError) as err:
+            LOGGER.warning("Could not send player state to Home Assistant: %s", err)
+            return
+        self.last_sent = payload
+
+
+def post_json(url: str, payload: dict[str, Any]) -> None:
+    """POST a JSON body; raises OSError on network or HTTP failure."""
+    if urlsplit(url).scheme not in {"http", "https"}:
+        raise ValueError("ha_webhook_url must be an http(s) URL")
+    request = urllib.request.Request(  # noqa: S310 - scheme checked above
+        url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST"
+    )
+    with urllib.request.urlopen(request, timeout=5):  # noqa: S310 - scheme checked above
+        pass
 
 
 @dataclass
@@ -566,6 +618,7 @@ def load_config(path: Path) -> dict[str, Any]:
         "ipc_socket": str(Path.home() / "Library/Application Support/MA MPV Player/mpv.sock"),
         "keychain_service": "com.ollisulopuisto.ma-mpv-player",
         "keychain_account": os.environ.get("USER", "music-assistant"),
+        "ha_webhook_url": None,
     }
     if path.exists():
         with path.open(encoding="utf-8") as file:
@@ -596,7 +649,15 @@ async def run(args: argparse.Namespace) -> None:
     password = load_password(config["keychain_service"], config["keychain_account"])
     mpv = MPVClient(config["mpv"], config["audio_device"], Path(config["ipc_socket"]), debug=args.verbose)
     bridge = Bridge(mpv, password)
-    await mpv.start(lambda: bridge.notify("player"))
+    webhook = config["ha_webhook_url"]
+    publisher = StatePublisher(mpv, lambda payload: asyncio.to_thread(post_json, webhook, payload)) if webhook else None
+
+    def on_change() -> None:
+        bridge.notify("player")
+        if publisher is not None:
+            publisher.schedule()
+
+    await mpv.start(on_change)
     server = await asyncio.start_server(bridge.handle_client, config["listen"], int(config["port"]))
     LOGGER.info("MPV MPD bridge listening on %s:%s", config["listen"], config["port"])
     try:

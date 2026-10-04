@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.04.5] - 2026-10-04
+
+- Optional Home Assistant webhook: set `ha_webhook_url` and the bridge POSTs `{"state", "channels", "samplerate"}` whenever playback state or the decoded channel count changes, so HA can switch the Denon's surround mode for real 5.1 from the Mac. Off unless configured.
+
 ## [v26.10.04.4] - 2026-10-04
 
 - Playback follows the Denon through power changes. Its HDMI audio device vanishes for a moment when the AVR turns on or off, and mpv used to fall back to the Mac's speakers and stay there. With a pinned `audio_device`, the bridge now pauses while the device is gone (MA shows paused) and, when it returns, reopens the output on it and resumes, unless someone paused, stopped or started a track in the meantime. Logged as "Output device … disappeared" / "returned". `auto` is left to mpv.

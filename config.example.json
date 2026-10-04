@@ -5,5 +5,6 @@
   "audio_device": "auto",
   "ipc_socket": "/Users/your-user/Library/Application Support/MA MPV Player/mpv.sock",
   "keychain_service": "com.ollisulopuisto.ma-mpv-player",
-  "keychain_account": "your-macos-username"
+  "keychain_account": "your-macos-username",
+  "ha_webhook_url": null
 }

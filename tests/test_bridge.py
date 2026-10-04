@@ -1,9 +1,11 @@
 import asyncio
+import http.server
 import json
 import plistlib
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,10 +16,12 @@ from bridge import (
     Bridge,
     ClientState,
     MPVClient,
+    StatePublisher,
     bool_arg,
     load_config,
     load_password,
     parse_command,
+    post_json,
 )
 
 
@@ -319,3 +323,72 @@ class OutputDeviceTests(unittest.IsolatedAsyncioTestCase):
 
     def test_device_list_is_observed(self):
         self.assertIn("audio-device-list", OBSERVED_PROPERTIES)
+
+
+class StatePublisherTests(unittest.IsolatedAsyncioTestCase):
+    """Home Assistant restores the Denon's surrounds from the decoded channel count."""
+
+    def setUp(self):
+        self.mpv = FakeMPV()
+        self.sent = []
+
+        async def send(payload):
+            self.sent.append(payload)
+
+        self.publisher = StatePublisher(self.mpv, send)
+
+    async def test_publishes_decoded_channels_once_per_change(self):
+        self.mpv.properties.update({"idle-active": False, "pause": False})
+        await self.publisher.check()
+        await self.publisher.check()
+
+        self.assertEqual(self.sent, [{"state": "play", "channels": 6, "samplerate": 96000}])
+
+    async def test_stopped_player_publishes_zero_channels(self):
+        self.mpv.properties.update({"idle-active": False})
+        await self.publisher.check()
+        self.mpv.properties.update({"idle-active": True})
+        await self.publisher.check()
+
+        self.assertEqual(self.sent[-1], {"state": "stop", "channels": 0, "samplerate": 0})
+
+    async def test_failed_send_is_logged_and_retried_on_next_change(self):
+        async def failing_send(payload):
+            raise OSError("unreachable")
+
+        publisher = StatePublisher(self.mpv, failing_send)
+        with self.assertLogs("mpv_mpd_bridge", level="WARNING"):
+            await publisher.check()
+        publisher.send = self.publisher.send
+        await publisher.check()
+
+        self.assertEqual(len(self.sent), 1)
+
+    def test_webhook_is_off_by_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIsNone(load_config(Path(directory) / "missing.json")["ha_webhook_url"])
+
+    def test_post_json_sends_payload_to_webhook(self):
+        received = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                received.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+        post_json(f"http://127.0.0.1:{server.server_port}/api/webhook/x", {"channels": 2})
+        thread.join()
+        server.server_close()
+
+        self.assertEqual(received, [{"channels": 2}])
+
+    def test_post_json_rejects_non_http_urls(self):
+        with self.assertRaises(ValueError):
+            post_json("file:///etc/passwd", {})
