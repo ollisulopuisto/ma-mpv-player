@@ -19,6 +19,8 @@ from urllib.parse import urlsplit
 
 LOGGER = logging.getLogger("mpv_mpd_bridge")
 MPD_VERSION = "0.24.0"
+# mpv log-file lines look like "[   0.112][e][ao/coreaudio] ..."; group 1 is the level.
+MPV_LOG_LEVEL = re.compile(r"\[\s*[\d.]+\]\[([a-z])\]")
 OBSERVED_PROPERTIES = (
     "pause",
     "time-pos",
@@ -202,6 +204,11 @@ class MPVClient:
         while line := await self.process.stderr.readline():
             message = line.decode("utf-8", errors="replace").strip()
             message = re.sub(r"""https?://[^\s'"<>]+""", "<stream-url-redacted>", message)
+            # --log-file always records mpv's verbose output, so drop the
+            # chatty levels here unless the bridge itself runs with --verbose.
+            level = MPV_LOG_LEVEL.match(message)
+            if level and level.group(1) not in "fwe" and not self.debug:
+                continue
             if message:
                 LOGGER.info("MPV: %s", message)
 

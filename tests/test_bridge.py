@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from bridge import Bridge, ClientState, bool_arg, load_config, load_password, parse_command
+from bridge import Bridge, ClientState, MPVClient, bool_arg, load_config, load_password, parse_command
 
 
 class FakeMPV:
@@ -35,6 +35,40 @@ class FakeMPV:
             self.properties["idle-active"] = False
         elif args[0] == "set_property":
             self.properties[args[1]] = args[2]
+
+
+MPV_LOG_LINES = [
+    b"[   0.112][d][cplayer] Run command: disable-section\n",
+    b"[   0.112][v][ao/coreaudio] Handling potential hotplug event...\n",
+    b"[   0.113][e][ao/coreaudio] failed to select device (jbo[33]/560947818)\n",
+    b"[   0.114][w][ffmpeg] http: reading http://ma.local:8097/stream?token=secret failed\n",
+]
+
+
+class MPVLogTests(unittest.IsolatedAsyncioTestCase):
+    async def read_mpv_log(self, debug):
+        client = MPVClient("mpv", "auto", Path("/nonexistent.sock"), debug=debug)
+        stderr = asyncio.StreamReader()
+        for line in MPV_LOG_LINES:
+            stderr.feed_data(line)
+        stderr.feed_eof()
+        client.process = SimpleNamespace(stderr=stderr)
+        with self.assertLogs("mpv_mpd_bridge", level="INFO") as logs:
+            await client._read_stderr()
+        return [record.getMessage() for record in logs.records]
+
+    async def test_quiet_mode_logs_only_mpv_warnings_and_errors(self):
+        messages = await self.read_mpv_log(debug=False)
+
+        self.assertEqual(len(messages), 2)
+        self.assertIn("failed to select device", messages[0])
+        self.assertIn("<stream-url-redacted>", messages[1])
+        self.assertNotIn("token=secret", messages[1])
+
+    async def test_debug_mode_logs_every_mpv_line(self):
+        messages = await self.read_mpv_log(debug=True)
+
+        self.assertEqual(len(messages), 4)
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):

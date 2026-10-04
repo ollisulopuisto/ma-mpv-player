@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.04.2] - 2026-10-04
+
+- The log in `~/Library/Logs/ma-mpv-player.log` now keeps only mpv's warnings and errors (such as the Denon output disappearing). Its verbose chatter, roughly 22,000 lines a week, appears only when the bridge runs with `--verbose`.
+
 ## [v26.10.04.1] - 2026-10-04
 
 First packaged release of the Music Assistant → MPD → mpv bridge for macOS.
