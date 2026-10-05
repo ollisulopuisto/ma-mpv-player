@@ -16,12 +16,14 @@ from bridge import (
     Bridge,
     ClientState,
     MPVClient,
+    MPVError,
     StatePublisher,
     bool_arg,
     load_config,
     load_password,
     parse_command,
     post_json,
+    serve_until_mpv_exits,
 )
 
 
@@ -443,3 +445,23 @@ class StatePublisherTests(unittest.IsolatedAsyncioTestCase):
     def test_post_json_rejects_non_http_urls(self):
         with self.assertRaises(ValueError):
             post_json("file:///etc/passwd", {})
+
+
+class SupervisionTests(unittest.IsolatedAsyncioTestCase):
+    """libmpv 0.41 can crash on CoreAudio device changes; launchd restarts the
+    bridge only if the bridge itself exits."""
+
+    async def test_mpv_exit_stops_the_bridge(self):
+        class Server:
+            async def serve_forever(self):
+                await asyncio.Event().wait()
+
+        class Process:
+            returncode = None
+
+            async def wait(self):
+                self.returncode = -11
+                return -11
+
+        with self.assertRaisesRegex(MPVError, "-11"):
+            await asyncio.wait_for(serve_until_mpv_exits(Server(), Process()), timeout=1)

@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.05.3] - 2026-10-05
+
+- If mpv crashes (libmpv 0.41 is known to crash on some macOS audio device changes), the bridge now exits so launchd restarts both, instead of staying up with no player behind it. Logged as "MPV bridge stopped: mpv exited unexpectedly".
+
 ## [v26.10.05.2] - 2026-10-05
 
 - MA keeps showing playing while a track waits for the Denon to finish waking up. Previously MA saw the failed first attempt as stopped and stayed idle even after the bridge's retry played, so HA never switched the amp's input to Mac Mini.

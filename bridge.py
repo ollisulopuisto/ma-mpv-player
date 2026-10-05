@@ -661,6 +661,24 @@ def load_config(path: Path) -> dict[str, Any]:
     return config
 
 
+async def serve_until_mpv_exits(server: Any, process: Any) -> None:
+    """Serve MPD until mpv dies, then fail so launchd restarts the whole bridge.
+
+    libmpv 0.41 can crash on CoreAudio device changes; without this the bridge
+    would keep accepting MA's commands with no player behind it.
+    """
+    serving = asyncio.create_task(server.serve_forever())
+    exited = asyncio.create_task(process.wait())
+    try:
+        await asyncio.wait({serving, exited}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        serving.cancel()
+        await asyncio.gather(serving, return_exceptions=True)
+    if exited.done():
+        raise MPVError(f"mpv exited unexpectedly ({exited.result()}); exiting so launchd restarts the bridge")
+    exited.cancel()
+
+
 async def run(args: argparse.Namespace) -> None:
     """Start mpv and serve MPD clients until shutdown."""
     config = load_config(args.config)
@@ -694,7 +712,7 @@ async def run(args: argparse.Namespace) -> None:
     LOGGER.info("MPV MPD bridge listening on %s:%s", config["listen"], config["port"])
     try:
         async with server:
-            await server.serve_forever()
+            await serve_until_mpv_exits(server, mpv.process)
     finally:
         server.close()
         await server.wait_closed()
@@ -723,7 +741,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     except (MPVError, RuntimeError, ValueError, OSError) as err:
-        LOGGER.error("MPV bridge could not start: %s", err)  # noqa: TRY400 - config errors, no traceback
+        LOGGER.error("MPV bridge stopped: %s", err)  # noqa: TRY400 - config errors, no traceback
         raise SystemExit(1) from err
 
 
