@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.05.1] - 2026-10-05
+
+- Pressing play with the Denon off now plays on the first press. MA's play arrived just as the amp powered on and its HDMI device briefly vanished; mpv gave up on the track ("audio output initialization failed") and MA showed stopped. The bridge now reloads the track when the device returns (or retries once at once if the device is there), unless a newer MPD command came in.
+
 ## [v26.10.04.5] - 2026-10-04
 
 - Optional Home Assistant webhook: set `ha_webhook_url` and the bridge POSTs `{"state", "channels", "samplerate"}` whenever playback state or the decoded channel count changes, so HA can switch the Denon's surround mode for real 5.1 from the Mac. Off unless configured.

@@ -257,6 +257,7 @@ class FindPythonTests(unittest.TestCase):
             self.assertEqual(chosen, "/usr/bin/python3")
 
 
+AO_FAILED = "audio output initialization failed"
 DENON = "coreaudio/11EE6600-0000-0000-001D-010380502D78"
 
 
@@ -312,6 +313,47 @@ class OutputDeviceTests(unittest.IsolatedAsyncioTestCase):
         await client._handle_device_list(device_list(DENON))
 
         self.assertEqual(client.sent, [("set_property", "pause", True), ("stop",), ("ao-reload",)])
+
+    async def test_track_that_failed_while_output_was_gone_is_reloaded_on_return(self):
+        # The AVR powering on removes its HDMI device just as MA sends play.
+        client = self.make_client(idle=True)
+        url = "http://ma.local:8097/flow/x.wav"
+        await client._handle_device_list(device_list(DENON))
+        await client._handle_device_list(device_list())
+        await client.command("loadfile", url, "replace")
+        await client._handle_load_failure(AO_FAILED)
+        await client._handle_device_list(device_list(DENON))
+
+        self.assertEqual(client.sent, [("loadfile", url, "replace"), ("ao-reload",), ("loadfile", url, "replace")])
+
+    async def test_mpd_command_cancels_the_pending_reload(self):
+        client = self.make_client(idle=True)
+        await client._handle_device_list(device_list(DENON))
+        await client._handle_device_list(device_list())
+        await client.command("loadfile", "http://ma.local/x.wav", "replace")
+        await client._handle_load_failure(AO_FAILED)
+        await client.command("stop")
+        await client._handle_device_list(device_list(DENON))
+
+        self.assertNotIn(("loadfile", "http://ma.local/x.wav", "replace"), client.sent[1:])
+
+    async def test_failure_with_output_present_is_retried_once(self):
+        client = self.make_client(idle=True)
+        url = "http://ma.local/x.wav"
+        await client._handle_device_list(device_list(DENON))
+        await client.command("loadfile", url, "replace")
+        await client._handle_load_failure(AO_FAILED)
+        await client._handle_load_failure(AO_FAILED)
+
+        self.assertEqual(client.sent, [("loadfile", url, "replace"), ("loadfile", url, "replace")])
+
+    async def test_other_load_errors_are_not_retried(self):
+        client = self.make_client(idle=True)
+        await client._handle_device_list(device_list(DENON))
+        await client.command("loadfile", "http://ma.local/x.wav", "replace")
+        await client._handle_load_failure("loading failed")
+
+        self.assertEqual(len(client.sent), 1)
 
     async def test_auto_device_is_left_to_mpv(self):
         client = self.make_client(device_uid="auto")

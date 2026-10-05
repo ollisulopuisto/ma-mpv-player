@@ -60,6 +60,9 @@ class MPVClient:
         # Following the pinned output device (see _handle_device_list).
         self.output_present: bool | None = None
         self.paused_for_output = False
+        self.last_load: str | None = None
+        self.load_retried = False
+        self.reload_on_output: str | None = None
         self.background_tasks: set[asyncio.Task[None]] = set()
 
     async def start(self, on_change: Any) -> None:
@@ -132,6 +135,10 @@ class MPVClient:
         if args[0] in {"loadfile", "stop"} or args[:2] == ("set_property", "pause"):
             # The user took over; don't auto-resume when the output returns.
             self.paused_for_output = False
+            self.reload_on_output = None
+            if args[0] == "loadfile":
+                self.last_load = args[1]
+                self.load_retried = False
         return await self._send(*args)
 
     async def _send(self, *args: Any) -> Any:
@@ -190,10 +197,29 @@ class MPVClient:
             if self.paused_for_output:
                 self.paused_for_output = False
                 await self._send("set_property", "pause", False)
+            if self.reload_on_output is not None:
+                url, self.reload_on_output = self.reload_on_output, None
+                await self._send("loadfile", url, "replace")
 
-    def _schedule_device_check(self, devices: list[dict[str, Any]]) -> None:
-        """Run the device check outside the IPC reader, which must keep reading replies."""
-        task = asyncio.create_task(self._handle_device_list(devices))
+    async def _handle_load_failure(self, error: str | None) -> None:
+        """Retry a track whose audio output could not be opened.
+
+        MA's play often arrives while the AVR is powering on and its HDMI
+        device is briefly gone; mpv then gives up on the track at once.
+        """
+        if error != "audio output initialization failed" or self.last_load is None:
+            return
+        if self.output_present is False:
+            LOGGER.warning("Audio output unavailable; will retry the track when the output device returns")
+            self.reload_on_output = self.last_load
+        elif not self.load_retried:
+            LOGGER.warning("Audio output failed to open; retrying the track once")
+            self.load_retried = True
+            await self._send("loadfile", self.last_load, "replace")
+
+    def _schedule(self, coroutine: Any) -> None:
+        """Run a handler outside the IPC reader, which must keep reading replies."""
+        task = asyncio.create_task(coroutine)
         self.background_tasks.add(task)
         task.add_done_callback(self.background_tasks.discard)
 
@@ -220,7 +246,7 @@ class MPVClient:
                 if event == "property-change" and message.get("name") == "time-pos":
                     continue
                 if event == "property-change" and message.get("name") == "audio-device-list":
-                    self._schedule_device_check(message.get("data") or [])
+                    self._schedule(self._handle_device_list(message.get("data") or []))
                     continue
                 if event in {
                     "property-change",
@@ -230,6 +256,8 @@ class MPVClient:
                     "playback-restart",
                 } and self.on_change is not None:
                     self.on_change()
+                if event == "end-file" and message.get("reason") == "error":
+                    self._schedule(self._handle_load_failure(message.get("file_error")))
                 if message.get("event") in {"start-file", "file-loaded", "end-file"}:
                     details = message.get("event")
                     if details == "end-file":
