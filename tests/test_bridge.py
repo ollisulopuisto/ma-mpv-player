@@ -36,6 +36,7 @@ class FakeMPV:
             "audio-params": {"samplerate": 96000, "format": "s24", "channel-count": 6},
         }
         self.commands = []
+        self.reload_on_output = None
 
     async def get(self, name, default=None):
         return self.properties.get(name, default)
@@ -122,6 +123,14 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("state: play", status)
         self.assertIn("elapsed: 3.250", status)
         self.assertIn("audio: 96000:24:6", status)
+
+    async def test_track_waiting_for_its_output_reports_play_not_stop(self):
+        # MA gives up on a track it sees stop, and never notices the reload.
+        self.bridge.current_url = "http://ma.local/x.wav"
+        self.mpv.reload_on_output = "http://ma.local/x.wav"
+        self.mpv.properties.update({"idle-active": True})
+
+        self.assertIn("state: play", await self.bridge._status())
 
     async def test_idle_command_waits_until_notification(self):
         reader = asyncio.StreamReader()

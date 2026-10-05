@@ -572,6 +572,10 @@ class Bridge:
         duration = await self.mpv.get("duration", 0.0)
         volume = await self.mpv.get("volume", 100.0)
         params = await self.mpv.get("audio-params", {})
+        # A track waiting for its output device (see MPVClient._handle_load_failure)
+        # is still playing as far as MA is concerned; MA abandons a track it sees stop.
+        if idle and getattr(self.mpv, "reload_on_output", None) is not None:
+            idle, paused = False, False
         state = "stop" if idle else ("pause" if paused else "play")
         result = [
             f"volume: {round(float(volume))}",

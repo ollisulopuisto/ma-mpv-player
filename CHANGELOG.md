@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.05.2] - 2026-10-05
+
+- MA keeps showing playing while a track waits for the Denon to finish waking up. Previously MA saw the failed first attempt as stopped and stayed idle even after the bridge's retry played, so HA never switched the amp's input to Mac Mini.
+
 ## [v26.10.05.1] - 2026-10-05
 
 - Pressing play with the Denon off now plays on the first press. MA's play arrived just as the amp powered on and its HDMI device briefly vanished; mpv gave up on the track ("audio output initialization failed") and MA showed stopped. The bridge now reloads the track when the device returns (or retries once at once if the device is there), unless a newer MPD command came in.
