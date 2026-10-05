@@ -155,8 +155,7 @@ the target Mac/AVR before changing the MPV or macOS audio configuration.
 
 ## License
 
-No license is included yet. Choose a license before publishing or redistributing
-the repository.
+MIT — see [LICENSE](LICENSE).
 
 ## Uninstall
 

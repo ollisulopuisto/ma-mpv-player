@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.05.4] - 2026-10-05
+
+- Released under the MIT license.
+
 ## [v26.10.05.3] - 2026-10-05
 
 - If mpv crashes (libmpv 0.41 is known to crash on some macOS audio device changes), the bridge now exits so launchd restarts both, instead of staying up with no player behind it. Logged as "MPV bridge stopped: mpv exited unexpectedly".
