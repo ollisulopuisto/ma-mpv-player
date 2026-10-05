@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.05.8] - 2026-10-05
+
+- README rewritten for new users: why it exists (reliable multichannel, any-format playback from Music Assistant on a Mac over HDMI), features, a step-by-step quick start, a configuration table, operating and troubleshooting.
+
 ## [v26.10.05.7] - 2026-10-05
 
 - README: generic Home Assistant address in the webhook example; link to Audio Format Guard.
