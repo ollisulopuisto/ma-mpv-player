@@ -2,6 +2,13 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.05.5] - 2026-10-05
+
+- New `ao` setting (and `--ao`) picks mpv's audio output; defaults to `coreaudio` on macOS and `pipewire` elsewhere. Device ids are prefixed with it, so `audio_device` no longer assumes CoreAudio.
+- The MPD password can also come from `MA_MPV_PLAYER_PASSWORD` or a private `password_file`; the macOS Keychain remains the default.
+- Stopping the bridge (SIGTERM) now also stops mpv; previously a bridge stopped outside launchd left mpv running.
+- Non-macOS default for the mpv socket is `$XDG_RUNTIME_DIR/ma-mpv-player/mpv.sock`. Linux remains untested.
+
 ## [v26.10.05.4] - 2026-10-05
 
 - Released under the MIT license.

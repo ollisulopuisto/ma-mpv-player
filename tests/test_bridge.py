@@ -1,11 +1,16 @@
 import asyncio
+import contextlib
 import http.server
 import json
+import os
 import plistlib
+import signal
+import socket
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,8 +26,10 @@ from bridge import (
     bool_arg,
     load_config,
     load_password,
+    mpv_device_name,
     parse_command,
     post_json,
+    resolve_password,
     serve_until_mpv_exits,
 )
 
@@ -465,3 +472,78 @@ class SupervisionTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(MPVError, "-11"):
             await asyncio.wait_for(serve_until_mpv_exits(Server(), Process()), timeout=1)
+
+
+class PortabilityTests(unittest.TestCase):
+    """The bridge core is not macOS-specific; only the defaults are."""
+
+    def test_device_name_uses_the_configured_audio_output(self):
+        self.assertEqual(mpv_device_name("coreaudio", "11EE-UID"), "coreaudio/11EE-UID")
+        self.assertEqual(mpv_device_name("pipewire", "alsa_output.hdmi"), "pipewire/alsa_output.hdmi")
+        self.assertEqual(mpv_device_name("pipewire", "coreaudio/X"), "coreaudio/X")
+        self.assertEqual(mpv_device_name("alsa", "auto"), "auto")
+
+    def test_config_has_audio_output_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = load_config(Path(directory) / "missing.json")
+        self.assertIn(config["ao"], {"coreaudio", "pipewire"})
+
+    def test_password_from_environment_wins(self):
+        secret = "e" * 24
+        self.assertEqual(resolve_password({}, {"MA_MPV_PLAYER_PASSWORD": secret}), secret)
+
+    def test_password_from_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "password"
+            path.write_text("f" * 24 + "\n")
+            self.assertEqual(resolve_password({"password_file": str(path)}, {}), "f" * 24)
+
+    def test_short_password_from_file_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "password"
+            path.write_text("short")
+            with self.assertRaisesRegex(RuntimeError, "24 characters"):
+                resolve_password({"password_file": str(path)}, {})
+
+    @patch("bridge.load_password", return_value="k" * 24)
+    def test_keychain_is_the_fallback(self, keychain):
+        config = {"keychain_service": "svc", "keychain_account": "acct"}
+        self.assertEqual(resolve_password(config, {}), "k" * 24)
+        keychain.assert_called_once_with("svc", "acct")
+
+
+class ShutdownTests(unittest.TestCase):
+    root = Path(__file__).resolve().parents[1]
+
+    def test_sigterm_stops_mpv_too(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            pid_file = Path(directory) / "mpv.pid"
+            port = 46601
+            bridge = subprocess.Popen(
+                [
+                    sys.executable, str(self.root / "bridge.py"), "--config", str(Path(directory) / "none.json"),
+                    "--listen", "127.0.0.1", "--port", str(port), "--ipc-socket", str(Path(directory) / "s.sock"),
+                    "--mpv", str(self.root / "tests/fake_mpv.py"),
+                ],
+                env={**os.environ, "MA_MPV_PLAYER_PASSWORD": "p" * 24, "FAKE_MPV_PID_FILE": str(pid_file)},
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                for _ in range(50):
+                    try:
+                        socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+                mpv_pid = int(pid_file.read_text())
+                bridge.send_signal(signal.SIGTERM)
+                bridge.wait(timeout=5)
+                time.sleep(0.2)
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(mpv_pid, 0)
+            finally:
+                if bridge.poll() is None:
+                    bridge.kill()
+                with contextlib.suppress(Exception):
+                    os.kill(int(pid_file.read_text()), signal.SIGKILL)

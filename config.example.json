@@ -2,8 +2,10 @@
   "listen": "0.0.0.0",
   "port": 6601,
   "mpv": "/opt/homebrew/bin/mpv",
+  "ao": "coreaudio",
   "audio_device": "auto",
   "ipc_socket": "/Users/your-user/Library/Application Support/MA MPV Player/mpv.sock",
+  "password_file": null,
   "keychain_service": "com.ollisulopuisto.ma-mpv-player",
   "keychain_account": "your-macos-username",
   "ha_webhook_url": null

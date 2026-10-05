@@ -11,7 +11,9 @@ import logging
 import os
 import re
 import shlex
+import signal
 import subprocess
+import sys
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +36,13 @@ OBSERVED_PROPERTIES = (
 )
 
 
+def mpv_device_name(ao: str, device: str) -> str:
+    """Turn a configured device (bare id or full mpv name) into mpv's name."""
+    if device == "auto" or "/" in device:
+        return device
+    return f"{ao}/{device}"
+
+
 class MPVError(RuntimeError):
     """An mpv IPC request failed."""
 
@@ -42,9 +51,10 @@ class MPVClient:
     """Manage one mpv process through its private Unix JSON IPC socket."""
 
     def __init__(
-        self, executable: str, device_uid: str, socket_path: Path, debug: bool = False
+        self, executable: str, device_uid: str, socket_path: Path, debug: bool = False, ao: str = "coreaudio"
     ) -> None:
         self.executable = executable
+        self.ao = ao
         self.device_uid = device_uid
         self.socket_path = socket_path
         self.debug = debug
@@ -76,17 +86,14 @@ class MPVClient:
             "--idle=yes",
             "--no-terminal",
             "--ytdl=no",
-            "--ao=coreaudio",
+            f"--ao={self.ao}",
             "--audio-channels=auto",
             f"--input-ipc-server={self.socket_path}",
             f"--msg-level=all={'debug' if self.debug else 'warn'}",
             "--log-file=/dev/stderr",
         ]
         if self.device_uid != "auto":
-            device = self.device_uid
-            if not device.startswith("coreaudio/"):
-                device = f"coreaudio/{device}"
-            mpv_args.insert(6, f"--audio-device={device}")
+            mpv_args.insert(6, f"--audio-device={mpv_device_name(self.ao, self.device_uid)}")
         self.process = await asyncio.create_subprocess_exec(
             *mpv_args,
             stdout=asyncio.subprocess.DEVNULL,
@@ -180,7 +187,7 @@ class MPVClient:
         """
         if self.device_uid == "auto":
             return
-        target = self.device_uid if self.device_uid.startswith("coreaudio/") else f"coreaudio/{self.device_uid}"
+        target = mpv_device_name(self.ao, self.device_uid)
         present = any(device.get("name") == target for device in devices)
         previous, self.output_present = self.output_present, present
         if present == previous:
@@ -634,10 +641,32 @@ def load_password(service: str, account: str) -> str:
             f"Could not read Keychain item {service!r} for account {account!r}; "
             "run scripts/store-password.sh first"
         ) from err
-    password = result.stdout.rstrip("\r\n")
+    return checked_password(result.stdout)
+
+
+def checked_password(value: str) -> str:
+    """Strip the trailing newline and enforce the minimum length."""
+    password = value.rstrip("\r\n")
     if len(password) < 24:
         raise RuntimeError("The MPD password must contain at least 24 characters")
     return password
+
+
+def resolve_password(config: dict[str, Any], environ: Any) -> str:
+    """Find the MPD password: environment, then a private file, then macOS Keychain."""
+    if environ.get("MA_MPV_PLAYER_PASSWORD"):
+        return checked_password(environ["MA_MPV_PLAYER_PASSWORD"])
+    if config.get("password_file"):
+        return checked_password(Path(config["password_file"]).expanduser().read_text(encoding="utf-8"))
+    return load_password(config["keychain_service"], config["keychain_account"])
+
+
+def default_socket_path() -> Path:
+    """A private per-user location for mpv's IPC socket."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library/Application Support/MA MPV Player/mpv.sock"
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    return (Path(runtime) if runtime else Path.home() / ".local/state") / "ma-mpv-player/mpv.sock"
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -646,8 +675,10 @@ def load_config(path: Path) -> dict[str, Any]:
         "listen": "0.0.0.0",
         "port": 6601,
         "mpv": "mpv",
+        "ao": "coreaudio" if sys.platform == "darwin" else "pipewire",
         "audio_device": "auto",
-        "ipc_socket": str(Path.home() / "Library/Application Support/MA MPV Player/mpv.sock"),
+        "ipc_socket": str(default_socket_path()),
+        "password_file": None,
         "keychain_service": "com.ollisulopuisto.ma-mpv-player",
         "keychain_account": os.environ.get("USER", "music-assistant"),
         "ha_webhook_url": None,
@@ -681,12 +712,18 @@ async def serve_until_mpv_exits(server: Any, process: Any) -> None:
 
 async def run(args: argparse.Namespace) -> None:
     """Start mpv and serve MPD clients until shutdown."""
+    # launchd/systemd stop with SIGTERM; cancel so the finally blocks stop mpv
+    # instead of leaving it running without its bridge.
+    task = asyncio.current_task()
+    if task is not None:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
     config = load_config(args.config)
     overrides = {
         "listen": args.listen,
         "port": args.port,
         "mpv": args.mpv,
         "audio_device": args.audio_device,
+        "ao": args.ao,
         "ipc_socket": args.ipc_socket,
         "keychain_service": args.keychain_service,
         "keychain_account": args.keychain_account,
@@ -696,8 +733,10 @@ async def run(args: argparse.Namespace) -> None:
         raise ValueError("MPD listen port must be between 1 and 65535")
     if not all(config.get(key) for key in ("listen", "mpv", "ipc_socket", "keychain_service", "keychain_account")):
         raise ValueError("Bridge config is missing a required setting")
-    password = load_password(config["keychain_service"], config["keychain_account"])
-    mpv = MPVClient(config["mpv"], config["audio_device"], Path(config["ipc_socket"]), debug=args.verbose)
+    password = resolve_password(config, os.environ)
+    mpv = MPVClient(
+        config["mpv"], config["audio_device"], Path(config["ipc_socket"]), debug=args.verbose, ao=config["ao"]
+    )
     bridge = Bridge(mpv, password)
     webhook = config["ha_webhook_url"]
     publisher = StatePublisher(mpv, lambda payload: asyncio.to_thread(post_json, webhook, payload)) if webhook else None
@@ -727,6 +766,7 @@ def main() -> None:
     parser.add_argument("--port", type=int)
     parser.add_argument("--mpv")
     parser.add_argument("--audio-device")
+    parser.add_argument("--ao", help="mpv audio output: coreaudio (macOS), pipewire or alsa (Linux)")
     parser.add_argument("--ipc-socket")
     parser.add_argument("--keychain-service")
     parser.add_argument("--keychain-account")
@@ -738,8 +778,8 @@ def main() -> None:
     )
     try:
         asyncio.run(run(args))
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        LOGGER.info("MPV bridge stopped")
     except (MPVError, RuntimeError, ValueError, OSError) as err:
         LOGGER.error("MPV bridge stopped: %s", err)  # noqa: TRY400 - config errors, no traceback
         raise SystemExit(1) from err
