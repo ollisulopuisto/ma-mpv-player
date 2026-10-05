@@ -124,7 +124,7 @@ always a multichannel PCM container; the webhook's channel count can.
 
 - Navidrome scans and serves the library. Its DTS metadata patch is maintained
   separately; it makes DTS-in-WAV files report their true channel count.
-- Audio Format Guard manages Mac HDMI device state. It is a separate app and
+- [Audio Format Guard](https://github.com/ollisulopuisto/audio-format-guard) manages Mac HDMI device state. It is a separate app and
   is not installed or controlled by this bridge.
 
 ## Supported commands
@@ -137,7 +137,7 @@ volume, and decoded audio sample rate, bit depth, and channel count.
 ## Home Assistant state webhook
 
 Optional. Set `ha_webhook_url` in the config (e.g.
-`http://192.168.1.202:8123/api/webhook/<id>`) and the bridge POSTs JSON to it
+`http://homeassistant.local:8123/api/webhook/<id>`) and the bridge POSTs JSON to it
 whenever the player state or decoded format changes:
 
 ```json

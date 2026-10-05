@@ -2,6 +2,10 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.05.7] - 2026-10-05
+
+- README: generic Home Assistant address in the webhook example; link to Audio Format Guard.
+
 ## [v26.10.05.6] - 2026-10-05
 
 - `scripts/list-devices.sh` lists audio devices as ready-to-paste `audio_device` lines.
