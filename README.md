@@ -132,6 +132,11 @@ debounce in HA. Failed POSTs are logged and retried on the next change.
 - **Stereo instead of 5.1:** check MA's source channel count, the MPD `audio`
   status (sample rate, bit depth, channels), and the AVR's input mode. For DTS tracks, refresh
   the Navidrome provider in MA after Navidrome reindexes them.
+- **Crackle from the Mac's speakers when the AVR turns off:** macOS moves
+  mpv to the built-in speakers for ~40 ms before the bridge can pause it.
+  Mute the built-in output once in macOS (mute is remembered per device):
+  `SwitchAudioSource -t output -s "<built-in speakers>" && osascript -e 'set volume output muted true' && SwitchAudioSource -t output -s "<AVR>"`
+  (`brew install switchaudio-osx`).
 - **No sound after the AVR reconnects:** check Audio MIDI Setup and Audio
   Format Guard; the bridge does not change system-wide HDMI formats.
 
