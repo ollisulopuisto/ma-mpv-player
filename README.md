@@ -16,6 +16,15 @@ MPV's unauthenticated IPC socket to the network. It does not require Docker.
 The bridge is intentionally a single-player endpoint, not a general MPD music
 server.
 
+## Platforms
+
+macOS is the supported and tested platform (LaunchAgent, Keychain,
+CoreAudio). The bridge core is not macOS-specific: set `ao` to `pipewire` or
+`alsa`, and supply the password with `MA_MPV_PLAYER_PASSWORD` or a private
+`password_file`, and it should run on Linux under a systemd user unit. That
+path is **untested**, and there is no Linux installer yet; reports and
+contributions are welcome.
+
 ## Requirements
 
 - macOS with a logged-in user session (the service runs as a LaunchAgent)
@@ -37,14 +46,17 @@ password, installs the bridge under `~/Library/Application Support/MA MPV Player
 and starts a per-user LaunchAgent. Enter the same password in the MA
 MPD Player provider. Use at least 24 characters.
 
-Find CoreAudio output device names and UIDs with:
+List the audio devices as ready-to-paste config lines:
 
 ```sh
-mpv --audio-device=help
+./scripts/list-devices.sh
 ```
 
-Edit `~/.config/ma-mpv-player/config.json` and set `audio_device` to `auto`, a
-CoreAudio device UID, or `coreaudio/<device-name>`. Set `listen` to the Mac's
+Edit `~/.config/ma-mpv-player/config.json` and set `audio_device` to one of
+them (or keep `auto`, which follows the macOS default output). **Pin the
+receiver's device** if it is an HDMI AVR or TV: the bridge then pauses while
+that device disappears (the receiver powering on or off) and reopens it when
+it returns, instead of letting audio fall back to the Mac's speakers. Set `listen` to the Mac's
 LAN address to bind only that interface. The default `0.0.0.0` listens on all
 interfaces; allow inbound TCP port `6601` only from the MA host in your network
 firewall. The MPD password is required for all playback controls and current
@@ -82,17 +94,38 @@ force a sample rate or use DTS passthrough: MPV/FFmpeg decodes DTS to PCM, and
 CoreAudio negotiates the output. Use Audio Format Guard separately if HDMI
 needs to be reset after the AVR turns off or changes modes.
 
-## Home Assistant and Navidrome companions
+### Recommended Music Assistant player settings
+
+In the player's settings (**Settings → Players → this player**):
+
+- **Power Control:** your receiver's Home Assistant `media_player`. Pressing
+  play in MA then turns the receiver on, and MA stops playback when it turns
+  off (after a ~15 s delay; see the HA example below for an immediate stop).
+- **Volume Control:** the same receiver entity, so MA's volume slider drives
+  the receiver's master volume. mpv itself stays at 100 %. While the receiver
+  is off MA shows no volume. Pick the live entity: a disabled or duplicate
+  integration's entity (e.g. `..._2`) has no state and reads as 0 %.
+- **Output channels:** multichannel, so 5.1 sources reach the receiver as 5.1.
+
+## Home Assistant
+
+[`examples/home-assistant.yaml`](examples/home-assistant.yaml) has example
+automations, with placeholders for your entities:
+
+- wake the receiver and select the Mac's input when this player starts,
+- stop this player as soon as the receiver turns off,
+- receive the bridge's state webhook (see below) into a helper,
+- pick the receiver's sound mode from the decoded channel count.
+
+The receiver cannot tell stereo from 5.1 on the Mac's HDMI output, which is
+always a multichannel PCM container; the webhook's channel count can.
+
+## Companion projects
 
 - Navidrome scans and serves the library. Its DTS metadata patch is maintained
   separately; it makes DTS-in-WAV files report their true channel count.
-- The HA blueprint can switch the Denon input when this MA player starts. Set
-  the blueprint's MA player and input-select entity in Home Assistant.
 - Audio Format Guard manages Mac HDMI device state. It is a separate app and
   is not installed or controlled by this bridge.
-
-Keeping those projects separate lets each follow its own upstream release and
-update cycle while MA remains the shared control plane.
 
 ## Supported commands
 

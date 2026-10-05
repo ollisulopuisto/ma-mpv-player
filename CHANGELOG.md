@@ -2,6 +2,12 @@
 
 Versions use CalVer: `vYY.MM.DD.N`.
 
+## [v26.10.05.6] - 2026-10-05
+
+- `scripts/list-devices.sh` lists audio devices as ready-to-paste `audio_device` lines.
+- `examples/home-assistant.yaml`: example automations to wake the receiver and pick its input, stop the player when the receiver turns off, receive the channel-count webhook, and choose the sound mode from it.
+- README: recommended Music Assistant player settings (power, volume, multichannel), a Home Assistant section, and a Platforms section (macOS supported; Linux possible but untested).
+
 ## [v26.10.05.5] - 2026-10-05
 
 - New `ao` setting (and `--ao`) picks mpv's audio output; defaults to `coreaudio` on macOS and `pipewire` elsewhere. Device ids are prefixed with it, so `audio_device` no longer assumes CoreAudio.

@@ -67,5 +67,5 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST"
 launchctl kickstart -k "gui/$(id -u)/$LABEL"
 
 echo "Installed and started $LABEL."
-echo "Edit $CONFIG to select the CoreAudio device and set the Mac's LAN bind address."
+echo "Edit $CONFIG to pin the audio device (list them with ./scripts/list-devices.sh) and set the LAN bind address."
 echo "MA connects to this Mac at <mac-lan-ip>:6601. Use a LAN-only firewall rule."

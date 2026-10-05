@@ -547,3 +547,23 @@ class ShutdownTests(unittest.TestCase):
                     bridge.kill()
                 with contextlib.suppress(Exception):
                     os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+class ListDevicesTests(unittest.TestCase):
+    root = Path(__file__).resolve().parents[1]
+
+    def test_lists_only_devices_for_the_configured_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = Path(directory) / "mpv"
+            fake.write_text(
+                "#!/bin/sh\ncat <<'OUT'\nList of detected audio devices:\n  'auto' (Autoselect device)\n"
+                "  'coreaudio/11EE-UID' (DENON-AVR)\n  'avfoundation/11EE-UID' (DENON-AVR)\nOUT\n"
+            )
+            fake.chmod(0o755)
+            result = subprocess.run(
+                ["/bin/bash", str(self.root / "scripts/list-devices.sh"), "coreaudio"],
+                check=True, capture_output=True, text=True, env={**os.environ, "MPV": str(fake)},
+            )
+        self.assertIn('"audio_device": "11EE-UID"', result.stdout)
+        self.assertIn("DENON-AVR", result.stdout)
+        self.assertNotIn("avfoundation", result.stdout)

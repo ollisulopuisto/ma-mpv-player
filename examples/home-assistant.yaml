@@ -1,0 +1,118 @@
+# Example Home Assistant automations for an AV receiver fed by ma-mpv-player.
+#
+# Replace these placeholders before use:
+#   media_player.my_avr        - your receiver's media_player entity
+#   media_player.ma_mac_player - the Music Assistant player for this bridge
+#                                (as exposed by the Music Assistant integration)
+#   "Mac"                      - the receiver input the Mac's HDMI is on
+#   <webhook-id>               - a random id, e.g. from `openssl rand -hex 32`;
+#                                put the same id in the bridge's ha_webhook_url
+#
+# These are a starting point, tested against a Denon AVR-X3600H only.
+
+# Helper the webhook writes to (configuration.yaml, or create it in the UI).
+input_number:
+  mac_player_channels:
+    name: Mac player channels
+    min: 0
+    max: 8
+    step: 1
+
+automation:
+  # Wake the receiver and select the Mac's input when playback starts.
+  # select_source alone does not wake most receivers, so turn it on first and
+  # wait until it reports on. The bridge retries the track while the HDMI
+  # output reappears, so playback survives the receiver waking up.
+  - id: ma_mpv_player_wake_receiver
+    alias: Mac player wakes the receiver
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: media_player.ma_mac_player
+        to: playing
+        for:
+          seconds: 1
+    actions:
+      - if:
+          - condition: state
+            entity_id: media_player.my_avr
+            state: "off"
+        then:
+          - action: media_player.turn_on
+            target:
+              entity_id: media_player.my_avr
+          - wait_template: "{{ is_state('media_player.my_avr', 'on') }}"
+            timeout: 30
+            continue_on_timeout: false
+      - action: media_player.select_source
+        target:
+          entity_id: media_player.my_avr
+        data:
+          source: Mac
+
+  # Stop the Mac player as soon as the receiver turns off, instead of playing
+  # silently into a receiver in standby until Music Assistant notices.
+  - id: ma_mpv_player_stop_on_receiver_off
+    alias: Mac player stops when the receiver turns off
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: media_player.my_avr
+        to: "off"
+    conditions:
+      # Ignore HA restarts and integration reloads.
+      - condition: template
+        value_template: >-
+          {{ trigger.from_state is not none
+             and trigger.from_state.state not in ['unavailable', 'unknown'] }}
+    actions:
+      - action: media_player.media_stop
+        target:
+          entity_id: media_player.ma_mac_player
+        continue_on_error: true
+
+  # Receive the bridge's state webhook. The receiver cannot tell stereo from
+  # 5.1 on the Mac's HDMI (it is always a multichannel PCM container), but the
+  # bridge knows what mpv decoded. Stores the channel count while playing.
+  - id: ma_mpv_player_channels_webhook
+    alias: Mac player channel count from webhook
+    mode: queued
+    triggers:
+      - trigger: webhook
+        webhook_id: <webhook-id>
+        allowed_methods: [POST]
+        local_only: true
+    actions:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.mac_player_channels
+        data:
+          value: >-
+            {{ ([trigger.json.channels | int(0), 8] | min)
+               if trigger.json.state | default('') == 'play' else 0 }}
+
+  # Example use of the channel count: pick a sound mode per track. Mode names
+  # vary by receiver; check your media_player's sound_mode_list attribute.
+  - id: ma_mpv_player_sound_mode
+    alias: Receiver sound mode follows the Mac player's channels
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: input_number.mac_player_channels
+        for:
+          seconds: 3  # rides out the output reopening after the receiver wakes
+    conditions:
+      - condition: state
+        entity_id: media_player.my_avr
+        attribute: source
+        state: Mac
+      - condition: numeric_state
+        entity_id: input_number.mac_player_channels
+        above: 0
+    actions:
+      - action: media_player.select_sound_mode
+        target:
+          entity_id: media_player.my_avr
+        data:
+          sound_mode: >-
+            {{ 'MULTI CH IN' if states('input_number.mac_player_channels') | int(0) >= 4 else 'STEREO' }}
